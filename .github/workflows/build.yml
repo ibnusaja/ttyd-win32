@@ -8,9 +8,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # ========================================
-      # 1. Setup MSYS2 MINGW32
-      # ========================================
+      # ==========================================
+      # MSYS2 / MinGW32
+      # ==========================================
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -26,9 +26,9 @@ jobs:
             mingw-w64-i686-json-c
             mingw-w64-i686-openssl
 
-      # ========================================
-      # 2. Checkout ttyd
-      # ========================================
+      # ==========================================
+      # Checkout ttyd
+      # ==========================================
       - name: Checkout ttyd
         uses: actions/checkout@v5
         with:
@@ -36,39 +36,25 @@ jobs:
           ref: 1.7.7
           path: ttyd
 
-      # ========================================
-      # 3. Check compiler
-      # ========================================
+      # ==========================================
+      # Check compiler
+      # ==========================================
       - name: Check compiler
         shell: msys2 {0}
         run: |
-          echo "================================"
-          echo "Compiler target:"
-          echo "================================"
+          echo "=== TARGET ==="
           gcc -dumpmachine
 
-          echo ""
-          echo "================================"
-          echo "GCC version:"
-          echo "================================"
+          echo "=== GCC ==="
           gcc --version
 
-          echo ""
-          echo "================================"
-          echo "CMake version:"
-          echo "================================"
+          echo "=== CMAKE ==="
           cmake --version
 
-          echo ""
-          echo "================================"
-          echo "Ninja version:"
-          echo "================================"
-          ninja --version
-
-      # ========================================
-      # 4. Build libwebsockets
-      # ========================================
-      - name: Build libwebsockets
+      # ==========================================
+      # Clone libwebsockets
+      # ==========================================
+      - name: Clone libwebsockets
         shell: msys2 {0}
         run: |
           git clone \
@@ -77,10 +63,18 @@ jobs:
             https://github.com/warmcat/libwebsockets.git \
             lws
 
+      # ==========================================
+      # Configure libwebsockets
+      # ==========================================
+      - name: Configure libwebsockets
+        shell: msys2 {0}
+        run: |
           cd lws
 
           cmake -S . -B build \
             -G Ninja \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_SYSTEM_PROCESSOR=x86 \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/mingw32 \
             -DLWS_WITH_SSL=ON \
@@ -93,33 +87,42 @@ jobs:
             -DLWS_WITH_LIBEVENT=OFF \
             -DLWS_WITH_GLIB=OFF
 
-          cmake --build build --parallel
-
-          cmake --install build
-
-      # ========================================
-      # 5. Check libwebsockets
-      # ========================================
-      - name: Check libwebsockets
+      # ==========================================
+      # Build libwebsockets
+      # ==========================================
+      - name: Build libwebsockets
         shell: msys2 {0}
         run: |
-          echo "================================"
-          echo "libwebsockets:"
-          echo "================================"
+          cd lws
+          cmake --build build --parallel
+
+      # ==========================================
+      # Install libwebsockets
+      # ==========================================
+      - name: Install libwebsockets
+        shell: msys2 {0}
+        run: |
+          cd lws
+          cmake --install build
+
+      # ==========================================
+      # Verify libwebsockets
+      # ==========================================
+      - name: Verify libwebsockets
+        shell: msys2 {0}
+        run: |
+          echo "=== LWS files ==="
+
+          ls -lah /mingw32/lib/libwebsockets* || true
+          ls -lah /mingw32/bin/libwebsockets* || true
+
+          echo "=== pkg-config ==="
 
           pkg-config --modversion libwebsockets || true
 
-          echo ""
-          echo "Libraries:"
-          ls -la /mingw32/lib/libwebsockets* || true
-
-          echo ""
-          echo "DLL:"
-          ls -la /mingw32/bin/libwebsockets* || true
-
-      # ========================================
-      # 6. Configure ttyd
-      # ========================================
+      # ==========================================
+      # Configure ttyd
+      # ==========================================
       - name: Configure ttyd
         shell: msys2 {0}
         run: |
@@ -127,37 +130,36 @@ jobs:
 
           cmake -S . -B build \
             -G Ninja \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_SYSTEM_PROCESSOR=x86 \
             -DCMAKE_BUILD_TYPE=Release
 
-      # ========================================
-      # 7. Build ttyd
-      # ========================================
+      # ==========================================
+      # Build ttyd
+      # ==========================================
       - name: Build ttyd
         shell: msys2 {0}
         run: |
           cd ttyd
-
           cmake --build build --parallel
 
-      # ========================================
-      # 8. Check ttyd.exe
-      # ========================================
-      - name: Check ttyd executable
+      # ==========================================
+      # Verify ttyd
+      # ==========================================
+      - name: Verify ttyd
         shell: msys2 {0}
         run: |
-          echo "================================"
-          echo "ttyd.exe:"
-          echo "================================"
+          echo "=== ttyd.exe ==="
 
           ls -lh ttyd/build/ttyd.exe
 
-          echo ""
-          echo "File type:"
+          echo "=== File type ==="
+
           file ttyd/build/ttyd.exe
 
-      # ========================================
-      # 9. Collect DLL dependencies
-      # ========================================
+      # ==========================================
+      # Collect DLLs
+      # ==========================================
       - name: Collect DLLs
         shell: msys2 {0}
         run: |
@@ -165,35 +167,27 @@ jobs:
 
           cp ttyd/build/ttyd.exe dist/
 
-          echo "================================"
-          echo "DLL dependencies:"
-          echo "================================"
+          echo "=== Dependencies ==="
 
           ldd ttyd/build/ttyd.exe || true
 
-          echo ""
-          echo "Copying DLLs..."
+          echo "=== Copy DLLs ==="
 
           cp /mingw32/bin/libwebsockets*.dll dist/ || true
           cp /mingw32/bin/libssl*.dll dist/ || true
           cp /mingw32/bin/libcrypto*.dll dist/ || true
           cp /mingw32/bin/libjson-c*.dll dist/ || true
-
-          # MinGW runtime
           cp /mingw32/bin/libgcc_s_*.dll dist/ || true
           cp /mingw32/bin/libstdc++-*.dll dist/ || true
           cp /mingw32/bin/libwinpthread-*.dll dist/ || true
 
-          echo ""
-          echo "================================"
-          echo "DIST:"
-          echo "================================"
+          echo "=== DIST ==="
 
           ls -lah dist
 
-      # ========================================
-      # 10. Package ZIP
-      # ========================================
+      # ==========================================
+      # ZIP
+      # ==========================================
       - name: Package
         shell: pwsh
         run: |
@@ -201,11 +195,9 @@ jobs:
             -Path dist/* `
             -DestinationPath ttyd-win32.zip
 
-          Get-Item ttyd-win32.zip
-
-      # ========================================
-      # 11. Upload artifact
-      # ========================================
+      # ==========================================
+      # Upload
+      # ==========================================
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
