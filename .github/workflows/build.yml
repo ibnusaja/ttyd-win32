@@ -8,6 +8,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # ========================================
+      # 1. Setup MSYS2 MINGW32
+      # ========================================
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -23,28 +26,56 @@ jobs:
             mingw-w64-i686-json-c
             mingw-w64-i686-openssl
 
+      # ========================================
+      # 2. Checkout ttyd
+      # ========================================
       - name: Checkout ttyd
         uses: actions/checkout@v5
         with:
           repository: tsl0922/ttyd
+          ref: 1.7.7
           path: ttyd
 
+      # ========================================
+      # 3. Check compiler
+      # ========================================
       - name: Check compiler
         shell: msys2 {0}
         run: |
-          echo "=== TARGET ==="
+          echo "================================"
+          echo "Compiler target:"
+          echo "================================"
           gcc -dumpmachine
 
-          echo "=== GCC ==="
+          echo ""
+          echo "================================"
+          echo "GCC version:"
+          echo "================================"
           gcc --version
 
-          echo "=== CMAKE ==="
+          echo ""
+          echo "================================"
+          echo "CMake version:"
+          echo "================================"
           cmake --version
 
+          echo ""
+          echo "================================"
+          echo "Ninja version:"
+          echo "================================"
+          ninja --version
+
+      # ========================================
+      # 4. Build libwebsockets
+      # ========================================
       - name: Build libwebsockets
         shell: msys2 {0}
         run: |
-          git clone --depth 1 https://github.com/warmcat/libwebsockets.git lws
+          git clone \
+            --depth 1 \
+            --branch v4.3.3 \
+            https://github.com/warmcat/libwebsockets.git \
+            lws
 
           cd lws
 
@@ -57,17 +88,38 @@ jobs:
             -DLWS_WITH_STATIC=OFF \
             -DLWS_WITHOUT_TESTAPPS=ON \
             -DLWS_WITHOUT_TEST_SERVER=ON \
-            -DLWS_WITHOUT_TEST_PING=ON
+            -DLWS_WITHOUT_TEST_PING=ON \
+            -DLWS_WITH_LIBUV=OFF \
+            -DLWS_WITH_LIBEVENT=OFF \
+            -DLWS_WITH_GLIB=OFF
 
           cmake --build build --parallel
+
           cmake --install build
 
+      # ========================================
+      # 5. Check libwebsockets
+      # ========================================
       - name: Check libwebsockets
         shell: msys2 {0}
         run: |
-          echo "=== libwebsockets ==="
-          pkg-config --modversion libwebsockets
+          echo "================================"
+          echo "libwebsockets:"
+          echo "================================"
 
+          pkg-config --modversion libwebsockets || true
+
+          echo ""
+          echo "Libraries:"
+          ls -la /mingw32/lib/libwebsockets* || true
+
+          echo ""
+          echo "DLL:"
+          ls -la /mingw32/bin/libwebsockets* || true
+
+      # ========================================
+      # 6. Configure ttyd
+      # ========================================
       - name: Configure ttyd
         shell: msys2 {0}
         run: |
@@ -77,19 +129,35 @@ jobs:
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release
 
+      # ========================================
+      # 7. Build ttyd
+      # ========================================
       - name: Build ttyd
         shell: msys2 {0}
         run: |
           cd ttyd
+
           cmake --build build --parallel
 
-      - name: Check ttyd
+      # ========================================
+      # 8. Check ttyd.exe
+      # ========================================
+      - name: Check ttyd executable
         shell: msys2 {0}
         run: |
-          echo "=== ttyd.exe ==="
+          echo "================================"
+          echo "ttyd.exe:"
+          echo "================================"
+
           ls -lh ttyd/build/ttyd.exe
+
+          echo ""
+          echo "File type:"
           file ttyd/build/ttyd.exe
 
+      # ========================================
+      # 9. Collect DLL dependencies
+      # ========================================
       - name: Collect DLLs
         shell: msys2 {0}
         run: |
@@ -97,13 +165,35 @@ jobs:
 
           cp ttyd/build/ttyd.exe dist/
 
+          echo "================================"
+          echo "DLL dependencies:"
+          echo "================================"
+
           ldd ttyd/build/ttyd.exe || true
+
+          echo ""
+          echo "Copying DLLs..."
 
           cp /mingw32/bin/libwebsockets*.dll dist/ || true
           cp /mingw32/bin/libssl*.dll dist/ || true
           cp /mingw32/bin/libcrypto*.dll dist/ || true
           cp /mingw32/bin/libjson-c*.dll dist/ || true
 
+          # MinGW runtime
+          cp /mingw32/bin/libgcc_s_*.dll dist/ || true
+          cp /mingw32/bin/libstdc++-*.dll dist/ || true
+          cp /mingw32/bin/libwinpthread-*.dll dist/ || true
+
+          echo ""
+          echo "================================"
+          echo "DIST:"
+          echo "================================"
+
+          ls -lah dist
+
+      # ========================================
+      # 10. Package ZIP
+      # ========================================
       - name: Package
         shell: pwsh
         run: |
@@ -111,6 +201,11 @@ jobs:
             -Path dist/* `
             -DestinationPath ttyd-win32.zip
 
+          Get-Item ttyd-win32.zip
+
+      # ========================================
+      # 11. Upload artifact
+      # ========================================
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
